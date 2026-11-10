@@ -4,6 +4,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.text.Html;
 import android.util.Log;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
 import java.util.ArrayList;
@@ -384,6 +385,45 @@ public class ParsePost {
         }
     }
 
+    // Reddit does not consistently include video metadata in the same place. Depending on the
+    // endpoint and whether the post is a crosspost, the object may be under media, secure_media,
+    // or preview.reddit_video_preview. Treat these fields as optional so one incomplete response
+    // cannot abort parsing the entire post.
+    @NonNull
+    private static JSONObject getRedditVideoObject(JSONObject data) {
+        JSONObject media = data.optJSONObject(JSONUtils.MEDIA_KEY);
+        JSONObject redditVideo = media == null ? null : media.optJSONObject(JSONUtils.REDDIT_VIDEO_KEY);
+        if (redditVideo == null) {
+            JSONObject secureMedia = data.optJSONObject("secure_media");
+            redditVideo = secureMedia == null ? null : secureMedia.optJSONObject(JSONUtils.REDDIT_VIDEO_KEY);
+        }
+        if (redditVideo == null) {
+            redditVideo = getRedditVideoPreviewObject(data);
+        }
+        return redditVideo == null ? new JSONObject() : redditVideo;
+    }
+
+    @Nullable
+    private static JSONObject getRedditVideoPreviewObject(JSONObject data) {
+        JSONObject preview = data.optJSONObject(JSONUtils.PREVIEW_KEY);
+        return preview == null ? null : preview.optJSONObject(JSONUtils.REDDIT_VIDEO_PREVIEW_KEY);
+    }
+
+    @Nullable
+    private static String getRedditVideoUrl(JSONObject redditVideo) {
+        String hlsUrl = redditVideo.optString(JSONUtils.HLS_URL_KEY, "");
+        if (hlsUrl.isEmpty()) {
+            hlsUrl = redditVideo.optString(JSONUtils.FALLBACK_URL_KEY, "");
+        }
+        return hlsUrl.isEmpty() ? null : Html.fromHtml(hlsUrl).toString();
+    }
+
+    @Nullable
+    private static String getRedditVideoFallbackUrl(JSONObject redditVideo) {
+        String fallbackUrl = redditVideo.optString(JSONUtils.FALLBACK_URL_KEY, "");
+        return fallbackUrl.isEmpty() ? null : Html.fromHtml(fallbackUrl).toString();
+    }
+
     private static String normalizeRedditPreviewHost(String url, boolean linksToReddit) {
         if (linksToReddit && url != null) {
             return url.replace("://external-preview.redd.it/", "://preview.redd.it/");
@@ -458,10 +498,10 @@ public class ParsePost {
                             TODO a removed crosspost may not have media JSONObject. This happens in crosspost_parent_list
                             e.g. https://www.reddit.com/r/hitmanimals/comments/1l6pv0m/mission_failed_agent_47/
                          */
-                        JSONObject redditVideoObject = data.getJSONObject(JSONUtils.MEDIA_KEY).getJSONObject(JSONUtils.REDDIT_VIDEO_KEY);
+                        JSONObject redditVideoObject = getRedditVideoObject(data);
                         int postType = Post.VIDEO_TYPE;
-                        String videoUrl = Html.fromHtml(redditVideoObject.getString(JSONUtils.HLS_URL_KEY)).toString();
-                        String videoDownloadUrl = redditVideoObject.getString(JSONUtils.FALLBACK_URL_KEY);
+                        String videoUrl = getRedditVideoUrl(redditVideoObject);
+                        String videoDownloadUrl = getRedditVideoFallbackUrl(redditVideoObject);
 
                         post = new Post(id, fullName, subredditName, subredditNamePrefixed, author,
                                 authorFullname, authorFlair, authorFlairHTML, postTimeMillis, title,
@@ -524,10 +564,10 @@ public class ParsePost {
 
             if (isVideo) {
                 //Video post
-                JSONObject redditVideoObject = data.getJSONObject(JSONUtils.MEDIA_KEY).getJSONObject(JSONUtils.REDDIT_VIDEO_KEY);
+                JSONObject redditVideoObject = getRedditVideoObject(data);
                 int postType = Post.VIDEO_TYPE;
-                String videoUrl = Html.fromHtml(redditVideoObject.getString(JSONUtils.HLS_URL_KEY)).toString();
-                String videoDownloadUrl = redditVideoObject.getString(JSONUtils.FALLBACK_URL_KEY);
+                String videoUrl = getRedditVideoUrl(redditVideoObject);
+                String videoDownloadUrl = getRedditVideoFallbackUrl(redditVideoObject);
 
                 post = new Post(id, fullName, subredditName, subredditNamePrefixed, author, authorFullname,
                         authorFlair, authorFlairHTML, postTimeMillis, title, permalink, score, postType, voteType,
@@ -562,10 +602,9 @@ public class ParsePost {
                     } else {
                         //Gif video post (HLS) and maybe Redgifs
 
-                        String videoUrl = Html.fromHtml(data.getJSONObject(JSONUtils.PREVIEW_KEY)
-                                .getJSONObject(JSONUtils.REDDIT_VIDEO_PREVIEW_KEY).getString(JSONUtils.HLS_URL_KEY)).toString();
-                        String videoDownloadUrl = data.getJSONObject(JSONUtils.PREVIEW_KEY)
-                                .getJSONObject(JSONUtils.REDDIT_VIDEO_PREVIEW_KEY).getString(JSONUtils.FALLBACK_URL_KEY);
+                        JSONObject redditVideoPreview = getRedditVideoPreviewObject(data);
+                        String videoUrl = getRedditVideoUrl(redditVideoPreview == null ? new JSONObject() : redditVideoPreview);
+                        String videoDownloadUrl = getRedditVideoFallbackUrl(redditVideoPreview == null ? new JSONObject() : redditVideoPreview);
 
                         post = new Post(id, fullName, subredditName, subredditNamePrefixed, author,
                                 authorFullname, authorFlair, authorFlairHTML, postTimeMillis, title,
@@ -577,8 +616,7 @@ public class ParsePost {
                         post.setVideoUrl(videoUrl);
                         post.setVideoDownloadUrl(videoDownloadUrl);
                     }
-                    post.setVideoFallBackDirectUrl(Html.fromHtml(data.getJSONObject(JSONUtils.PREVIEW_KEY)
-                            .getJSONObject(JSONUtils.REDDIT_VIDEO_PREVIEW_KEY).getString(JSONUtils.FALLBACK_URL_KEY)).toString());
+                    post.setVideoFallBackDirectUrl(getRedditVideoFallbackUrl(redditVideoPreview == null ? new JSONObject() : redditVideoPreview));
                 } else {
                     if (path.endsWith(".jpg") || path.endsWith(".png") || path.endsWith(".jpeg")) {
                         //Image post
