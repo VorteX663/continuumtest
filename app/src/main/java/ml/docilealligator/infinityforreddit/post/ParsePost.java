@@ -617,8 +617,8 @@ public class ParsePost {
                         post.setPreviews(previews);
                         post.setVideoUrl(videoUrl);
                         post.setVideoDownloadUrl(videoDownloadUrl);
+                        post.setVideoFallBackDirectUrl(videoDownloadUrl);
                     }
-                    post.setVideoFallBackDirectUrl(getRedditVideoFallbackUrl(redditVideoPreview == null ? new JSONObject() : redditVideoPreview));
                 } else {
                     if (path.endsWith(".jpg") || path.endsWith(".png") || path.endsWith(".jpeg")) {
                         //Image post
