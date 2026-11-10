@@ -512,6 +512,7 @@ public class ParsePost {
 
                         post.setVideoUrl(videoUrl);
                         post.setVideoDownloadUrl(videoDownloadUrl);
+                        post.setVideoFallBackDirectUrl(videoDownloadUrl);
                     } else {
                         //No preview link post
                         int postType = Post.NO_PREVIEW_LINK_TYPE;
@@ -578,6 +579,7 @@ public class ParsePost {
                 post.setPreviews(previews);
                 post.setVideoUrl(videoUrl);
                 post.setVideoDownloadUrl(videoDownloadUrl);
+                post.setVideoFallBackDirectUrl(videoDownloadUrl);
             } else if (data.has(JSONUtils.PREVIEW_KEY)) {
                 if (data.getJSONObject(JSONUtils.PREVIEW_KEY).has(JSONUtils.REDDIT_VIDEO_PREVIEW_KEY)) {
                     int postType = Post.VIDEO_TYPE;
