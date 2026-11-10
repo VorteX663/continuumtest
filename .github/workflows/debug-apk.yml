@@ -1,4 +1,4 @@
-name: One-shot debug APK
+name: Personal signed release APK
 
 on:
   push:
@@ -7,11 +7,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-debug:
-    # The push trigger is deliberately limited to the one commit that installs this workflow.
-    # Later pushes do not build automatically; manual dispatch remains available.
-    # Keep this workflow opt-in for all subsequent code commits.
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Build debug APK'
+  build-release:
+    # Only run for an explicit manual dispatch or the one named opt-in commit.
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Build personal release APK'
     runs-on: ubuntu-latest
     steps:
       - name: Check out Continuum
@@ -34,14 +32,55 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Assemble debug APK
+      - name: Create or load personal test-signing key
         working-directory: continuumtest
-        run: ./gradlew :app:assembleDebug -PskipDeviceTests=true
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$KEYSTORE_B64" ]]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > personal-test-signing.jks
+            : "${KEYSTORE_PASSWORD:?Set ANDROID_KEYSTORE_PASSWORD secret}"
+            : "${KEY_ALIAS:?Set ANDROID_KEY_ALIAS secret}"
+            : "${KEY_PASSWORD:?Set ANDROID_KEY_PASSWORD secret}"
+          else
+            KEY_ALIAS="continuum-personal"
+            KEYSTORE_PASSWORD="$(openssl rand -hex 24)"
+            KEY_PASSWORD="$KEYSTORE_PASSWORD"
+            keytool -genkeypair -v \
+              -keystore personal-test-signing.jks \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD" \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Continuum Personal Test,O=Local Testing,C=IN"
+            {
+              echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
+            } > personal-test-signing-info.txt
+          fi
+          cat > keystore.properties <<EOF
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          storeFile=personal-test-signing.jks
+          storePassword=$KEYSTORE_PASSWORD
+          EOF
 
-      - name: Upload debug APK
+      - name: Assemble signed release APKs
+        working-directory: continuumtest
+        run: ./gradlew :app:assembleRelease -PskipDeviceTests=true
+
+      - name: Upload signed APKs and keep the signing key
         uses: actions/upload-artifact@v4
         with:
-          name: continuum-debug-apk
-          path: continuumtest/app/build/outputs/apk/debug/*.apk
+          name: continuum-personal-release
+          path: |
+            continuumtest/app/build/outputs/apk/release/*.apk
+            continuumtest/personal-test-signing.jks
+            continuumtest/personal-test-signing-info.txt
           if-no-files-found: error
           compression-level: 0
