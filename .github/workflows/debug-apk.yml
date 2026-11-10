@@ -10,6 +10,7 @@ jobs:
   build-debug:
     # The push trigger is deliberately limited to the one commit that installs this workflow.
     # Later pushes do not build automatically; manual dispatch remains available.
+    # Keep this workflow opt-in for all subsequent code commits.
     if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Build debug APK'
     runs-on: ubuntu-latest
     steps:
